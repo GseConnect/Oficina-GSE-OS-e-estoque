@@ -1,0 +1,6 @@
+dist
+dist-preview
+node_modules
+package-lock.json
+public
+docs/telas

@@ -1,0 +1,17 @@
+/// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_FIREBASE_API_KEY?: string;
+  readonly VITE_FIREBASE_AUTH_DOMAIN?: string;
+  readonly VITE_FIREBASE_PROJECT_ID?: string;
+  readonly VITE_FIREBASE_STORAGE_BUCKET?: string;
+  readonly VITE_FIREBASE_MESSAGING_SENDER_ID?: string;
+  readonly VITE_FIREBASE_APP_ID?: string;
+  readonly VITE_COLLECTION_PREFIX?: string;
+  /** Usado só para gerar a prévia de demonstração (sem Firebase no pacote). */
+  readonly VITE_DEMO_ONLY?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
