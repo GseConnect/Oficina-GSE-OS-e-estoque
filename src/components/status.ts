@@ -1,19 +1,25 @@
 import {
+  ChevronsUp,
   CircleCheck,
   Clock,
+  Cog,
   Disc3,
   Droplet,
   LifeBuoy,
   Luggage,
   Mic,
+  Plane,
+  PlugZap,
   Power,
   TriangleAlert,
   Truck,
+  Warehouse,
   Wrench,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
-import type { EquipKind, EquipStatus, OrderStatus, Part } from '../types';
+import type { EquipKind, EquipLocation, EquipStatus, OrderStatus, Part } from '../types';
+import { KIND_INFO, LOCATION_LABEL } from '../lib/kinds';
 
 export type Tone = 'coral' | 'amber' | 'blue' | 'red' | 'green' | 'neutral';
 
@@ -43,9 +49,26 @@ export const PART_LEVEL: Record<PartLevel, StatusInfo> = {
   out: { label: 'Em falta', tone: 'red', icon: TriangleAlert },
 };
 
-export const KIND: Record<EquipKind, { label: string; group: string; icon: LucideIcon }> = {
-  tmx: { label: 'Rebocador TMX 150', group: 'Rebocadores TMX 150', icon: Truck },
-  nbl: { label: 'Esteira TLD NBL', group: 'Esteiras TLD NBL', icon: Luggage },
+const KIND_ICON: Record<EquipKind, LucideIcon> = {
+  tmx: Truck,
+  nbl: Luggage,
+  gpu: PlugZap,
+  escada: ChevronsUp,
+  outro: Cog,
+};
+
+export const KIND: Record<EquipKind, { label: string; group: string; hasHourMeter: boolean; icon: LucideIcon }> = {
+  tmx: { ...KIND_INFO.tmx, icon: KIND_ICON.tmx },
+  nbl: { ...KIND_INFO.nbl, icon: KIND_ICON.nbl },
+  gpu: { ...KIND_INFO.gpu, icon: KIND_ICON.gpu },
+  escada: { ...KIND_INFO.escada, icon: KIND_ICON.escada },
+  outro: { ...KIND_INFO.outro, icon: KIND_ICON.outro },
+};
+export { KIND_ORDER } from '../lib/kinds';
+
+export const LOCATION: Record<EquipLocation, { label: string; long: string; icon: LucideIcon }> = {
+  oficina: { label: LOCATION_LABEL.oficina, long: 'Na oficina', icon: Warehouse },
+  operacao: { label: LOCATION_LABEL.operacao, long: 'Na operação (rampa)', icon: Plane },
 };
 
 export const PROBLEMS: Array<{ id: string; label: string; icon: LucideIcon; sub?: string; tone: Tone }> = [
@@ -55,6 +78,16 @@ export const PROBLEMS: Array<{ id: string; label: string; icon: LucideIcon; sub?
   { id: 'vazamento', label: 'Vazamento', icon: Droplet, tone: 'blue' },
   { id: 'eletrica', label: 'Parte elétrica', icon: Zap, tone: 'blue' },
   { id: 'outro', label: 'Outro', sub: 'Falar o problema', icon: Mic, tone: 'coral' },
+];
+
+/** Atalhos para descrever o serviço no fechamento, sem precisar digitar tudo. */
+export const SERVICE_CHIPS = [
+  'Troca de peça',
+  'Ajuste e regulagem',
+  'Reparo elétrico',
+  'Reparo hidráulico',
+  'Troca de pneu',
+  'Limpeza e lubrificação',
 ];
 
 /** Equipamentos que aparecem como "QR de teste" na abertura de OS. */

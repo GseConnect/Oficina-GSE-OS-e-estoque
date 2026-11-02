@@ -21,7 +21,11 @@ export function Login({ onLogin, embedded }: { onLogin: (u: User) => void; embed
       return;
     }
     const tech = snap?.technicians.find((t) => t.bp === bp);
-    onLogin({ bp, name: tech?.name ?? null });
+    if (!tech) {
+      setErr('BP não cadastrado. Peça para a supervisão cadastrar no painel, na aba Cadastros.');
+      return;
+    }
+    onLogin({ bp, name: tech.name });
   };
 
   return (
@@ -53,7 +57,7 @@ export function Login({ onLogin, embedded }: { onLogin: (u: User) => void; embed
         <Button type="submit" variant="primary" size="xl" block icon={LogIn} disabled={!snap}>
           Entrar
         </Button>
-        <p className="login-hint">Para testar: 4617387 ou qualquer BP de 7 números.</p>
+        <p className="login-hint">Para testar: 4617387 (Higor Cavalcante).</p>
       </form>
       {!embedded && (
         <a className="login-link" href="#/painel">

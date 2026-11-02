@@ -18,16 +18,19 @@ import {
 } from 'lucide-react';
 import { useStore } from '../data/storeContext';
 import { AppError } from '../data/rules';
-import { ago, dateTime, firstName } from '../lib/format';
+import { SEED_EQUIP_IDS } from '../data/seed';
+import { ago, dateTime, firstName, formatHours, parseHours } from '../lib/format';
+import { partsText } from '../lib/orders';
 import { equipPayload, parseQr, partPayload } from '../lib/qr';
 import { cx } from '../lib/cx';
-import type { Part, User, WorkOrder } from '../types';
+import type { EquipLocation, Equipment, Part, Snapshot, User, WorkOrder } from '../types';
 import { AppHeader } from '../components/AppHeader';
+import { FieldBlock, HourInput, LocationToggle } from '../components/FormBits';
 import { OrderCard } from '../components/OrderCard';
-import { partsText } from '../lib/orders';
+import { PhotoPicker } from '../components/PhotoPicker';
 import { ScanBox, type DemoCode } from '../components/ScanBox';
-import { DEMO_EQUIP, DEMO_PARTS, KIND, PROBLEMS } from '../components/status';
-import { ActionCard, BackBar, Button, EmptyState, Loading, Notice, ResultHead, RowList } from '../components/ui';
+import { DEMO_EQUIP, DEMO_PARTS, KIND, LOCATION, PROBLEMS, SERVICE_CHIPS } from '../components/status';
+import { ActionCard, BackBar, Button, Chips, EmptyState, Loading, Notice, ResultHead, RowList } from '../components/ui';
 
 type Screen =
   | { s: 'home' }
@@ -36,6 +39,7 @@ type Screen =
   | { s: 'open-confirm'; equipId: string }
   | { s: 'open-problem'; equipId: string }
   | { s: 'open-voice'; equipId: string }
+  | { s: 'open-details'; equipId: string; problem: string; description: string }
   | { s: 'open-done'; osId: number }
   | { s: 'pick-os' }
   | { s: 'pick-scan'; osId: number; undone?: boolean }
@@ -44,8 +48,10 @@ type Screen =
   | { s: 'pick-empty'; osId: number; partId: string }
   | { s: 'wait-done'; osId: number; partId: string }
   | { s: 'close-scan'; osId?: number }
-  | { s: 'close-confirm'; osId: number }
+  | { s: 'close-form'; osId: number }
   | { s: 'close-done'; osId: number };
+
+type MineFilter = 'abertas' | 'aguardando' | 'finalizadas';
 
 interface Props {
   user: User;
@@ -59,10 +65,13 @@ const UNKNOWN_QR = 'QR code não reconhecido. Tente de novo ou use um QR de test
 export function TechApp({ user, onLogout, embedded }: Props) {
   const { store, snap, now } = useStore();
   const [screen, setScreen] = useState<Screen>({ s: 'home' });
+  const [mineFilter, setMineFilter] = useState<MineFilter>('abertas');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  // No modo demonstração as fotos ficam no navegador, então saem menores.
+  const photoSide = store.mode === 'demo' ? 720 : 1024;
 
   // Cada tela nova começa do topo
   useEffect(() => {
@@ -119,6 +128,9 @@ export function TechApp({ user, onLogout, embedded }: Props) {
   const orderOf = (id: number) => snap.orders.find((o) => o.id === id);
   const partOf = (id: string) => snap.parts.find((p) => p.id === id);
   const mine = snap.orders.filter((o) => o.status !== 'closed' && o.techBp === user.bp);
+  const myClosed = snap.orders
+    .filter((o) => o.status === 'closed' && (o.techBp === user.bp || o.closedByBp === user.bp))
+    .sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0));
   const openOrders = snap.orders.filter((o) => o.status !== 'closed');
   const panelLink = embedded ? null : (
     <a className="btn btn-ghost btn-lg" href="#/painel">
@@ -164,7 +176,7 @@ export function TechApp({ user, onLogout, embedded }: Props) {
     if (expected && expected.equipId !== e.id)
       return setScanError(`Este QR é do ${e.id}. Leia o QR do ${expected.equipId}.`);
     if (!e.osId) return setScanError(`O ${e.id} não tem OS aberta.`);
-    go({ s: 'close-confirm', osId: e.osId });
+    go({ s: 'close-form', osId: e.osId });
   };
 
   const equipCode = (id: string, sub?: string): DemoCode => {
@@ -180,6 +192,11 @@ export function TechApp({ user, onLogout, embedded }: Props) {
     tone: 'blue',
     code: partPayload(p.pn),
   });
+  // Equipamentos cadastrados no painel também viram QR de teste
+  const demoEquip = [...DEMO_EQUIP, ...snap.equipment.filter((e) => !SEED_EQUIP_IDS.has(e.id)).map((e) => e.id)].slice(
+    0,
+    8,
+  );
 
   const startPick = () => (mine.length === 1 ? go({ s: 'pick-scan', osId: mine[0].id }) : go({ s: 'pick-os' }));
 
@@ -190,12 +207,12 @@ export function TechApp({ user, onLogout, embedded }: Props) {
     case 'open-scan':
       body = (
         <>
-          <BackBar onBack={home} step={1} total={3} />
+          <BackBar onBack={home} step={1} total={4} />
           <h2 className="screen-t">Leia o QR do equipamento</h2>
           <p className="screen-s">Aponte a câmera para a etiqueta colada no equipamento.</p>
           <ScanBox
             hint="Aponte para o QR do equipamento"
-            items={DEMO_EQUIP.map((id) => equipCode(id))}
+            items={demoEquip.filter((id) => eqOf(id)).map((id) => equipCode(id))}
             onCode={scanEquipForOpen}
             error={scanError}
           />
@@ -243,7 +260,7 @@ export function TechApp({ user, onLogout, embedded }: Props) {
       const equipId = e.id;
       body = (
         <>
-          <BackBar onBack={() => go({ s: 'open-scan' })} step={2} total={3} />
+          <BackBar onBack={() => go({ s: 'open-scan' })} step={2} total={4} />
           <h2 className="screen-t">É este o equipamento?</h2>
           <div className="equip-hero">
             <span className="equip-hero-ic">
@@ -265,14 +282,9 @@ export function TechApp({ user, onLogout, embedded }: Props) {
 
     case 'open-problem': {
       const equipId = view.equipId;
-      const open = (problem: string, key: string) =>
-        run(key, async () => {
-          const id = await store.openOrder({ equipId, problem, user });
-          go({ s: 'open-done', osId: id });
-        });
       body = (
         <>
-          <BackBar onBack={() => go({ s: 'open-confirm', equipId })} step={3} total={3} />
+          <BackBar onBack={() => go({ s: 'open-confirm', equipId })} step={3} total={4} />
           <h2 className="screen-t">Qual é o problema?</h2>
           <p className="screen-s">Equipamento {equipId}</p>
           <div className="tiles">
@@ -281,14 +293,17 @@ export function TechApp({ user, onLogout, embedded }: Props) {
                 key={p.id}
                 type="button"
                 className={cx('tile', `tone-${p.tone}`)}
-                disabled={!!busy}
-                onClick={() => (p.id === 'outro' ? go({ s: 'open-voice', equipId }) : open(p.label, p.id))}
+                onClick={() =>
+                  p.id === 'outro'
+                    ? go({ s: 'open-voice', equipId })
+                    : go({ s: 'open-details', equipId, problem: p.label, description: '' })
+                }
               >
                 <span className="tile-ic">
                   <p.icon size={26} aria-hidden />
                 </span>
                 <span>
-                  {busy === p.id ? 'Abrindo…' : p.label}
+                  {p.label}
                   {p.sub && <small>{p.sub}</small>}
                 </span>
               </button>
@@ -303,13 +318,35 @@ export function TechApp({ user, onLogout, embedded }: Props) {
       const equipId = view.equipId;
       body = (
         <>
-          <BackBar onBack={() => go({ s: 'open-problem', equipId })} step={3} total={3} />
+          <BackBar onBack={() => go({ s: 'open-problem', equipId })} step={3} total={4} />
           <VoiceStep
             equipId={equipId}
-            busy={busy === 'voice'}
-            onSubmit={(text) =>
-              run('voice', async () => {
-                const id = await store.openOrder({ equipId, problem: text, user });
+            onSubmit={(text) => go({ s: 'open-details', equipId, problem: 'Outro', description: text })}
+          />
+        </>
+      );
+      break;
+    }
+
+    case 'open-details': {
+      const e = eqOf(view.equipId);
+      if (!e) {
+        body = <EmptyState icon={TriangleAlert} title="Equipamento não encontrado" />;
+        break;
+      }
+      const { problem, description } = view;
+      body = (
+        <>
+          <BackBar onBack={() => go({ s: 'open-problem', equipId: e.id })} step={4} total={4} />
+          <OpenDetailsStep
+            equip={e}
+            problem={problem}
+            initialDescription={description}
+            photoSide={photoSide}
+            busy={busy === 'open'}
+            onSubmit={(data) =>
+              run('open', async () => {
+                const id = await store.openOrder({ equipId: e.id, problem, ...data, user });
                 go({ s: 'open-done', osId: id });
               })
             }
@@ -330,8 +367,8 @@ export function TechApp({ user, onLogout, embedded }: Props) {
         <>
           <ResultHead tone="green" icon={CircleCheck} title={`OS ${o.id} aberta`} sub={`${o.equipId} · ${o.problem}`} />
           <Notice icon={ChartColumn}>
-            No painel, o <strong>{o.equipId}</strong> já aparece como <strong>baixado</strong>. Ninguém precisou digitar
-            nada.
+            No painel, o <strong>{o.equipId}</strong> já aparece como <strong>baixado</strong>, com a localização{' '}
+            <strong>{LOCATION[o.location].label.toLowerCase()}</strong>. Ninguém precisou digitar nada.
           </Notice>
           <Button size="xl" tone="blue" block icon={Package} onClick={() => go({ s: 'pick-scan', osId })}>
             Pegar peça para esta OS
@@ -574,63 +611,30 @@ export function TechApp({ user, onLogout, embedded }: Props) {
       break;
     }
 
-    case 'close-confirm': {
+    case 'close-form': {
       const o = orderOf(view.osId);
       if (!o) {
         body = null;
         break;
       }
-      const e = eqOf(o.equipId);
       body = (
         <>
           <BackBar onBack={() => go({ s: 'close-scan' })} step={2} total={2} />
-          <h2 className="screen-t">Fechar a OS {o.id}?</h2>
-          <dl className="details">
-            <div>
-              <dt>Equipamento</dt>
-              <dd>
-                {o.equipId}
-                {e ? `, ${KIND[e.kind].label}` : ''}
-              </dd>
-            </div>
-            <div>
-              <dt>Problema</dt>
-              <dd>{o.problem}</dd>
-            </div>
-            <div>
-              <dt>Técnico</dt>
-              <dd>{o.tech}</dd>
-            </div>
-            <div>
-              <dt>Aberta</dt>
-              <dd>
-                {dateTime(o.openedAt)} ({ago(o.openedAt, now)})
-              </dd>
-            </div>
-            <div>
-              <dt>Peças usadas</dt>
-              <dd>{partsText(o, snap) || 'Nenhuma'}</dd>
-            </div>
-          </dl>
-          <p className="question">O equipamento está pronto para operar?</p>
-          <Button
-            size="xl"
-            tone="green"
-            block
-            icon={CircleCheck}
+          <CloseStep
+            order={o}
+            equip={eqOf(o.equipId)}
+            snap={snap}
+            now={now}
+            photoSide={photoSide}
             busy={busy === 'close'}
-            onClick={() =>
+            onCancel={home}
+            onSubmit={(data) =>
               run('close', async () => {
-                await store.closeOrder({ osId: o.id, user });
+                await store.closeOrder({ osId: o.id, ...data, user });
                 go({ s: 'close-done', osId: o.id });
               })
             }
-          >
-            Sim, liberar equipamento
-          </Button>
-          <Button variant="outline" size="lg" block onClick={home}>
-            Ainda não
-          </Button>
+          />
         </>
       );
       break;
@@ -651,7 +655,7 @@ export function TechApp({ user, onLogout, embedded }: Props) {
             sub={`${o.equipId} liberado para operar`}
           />
           <Notice tone="green" icon={ChartColumn}>
-            No painel, o <strong>{o.equipId}</strong> voltou a aparecer como <strong>disponível</strong>.
+            No painel, o <strong>{o.equipId}</strong> voltou a aparecer como <strong>disponível</strong>, na operação.
           </Notice>
           <Button variant="outline" size="lg" block icon={House} onClick={home}>
             Voltar ao início
@@ -662,7 +666,9 @@ export function TechApp({ user, onLogout, embedded }: Props) {
       break;
     }
 
-    default:
+    default: {
+      const waiting = mine.filter((o) => o.status === 'wait');
+      const list = mineFilter === 'abertas' ? mine : mineFilter === 'aguardando' ? waiting : myClosed;
       body = (
         <>
           <div className="hello">
@@ -694,36 +700,50 @@ export function TechApp({ user, onLogout, embedded }: Props) {
           </div>
           <div className="sec-h">
             <ClipboardList size={20} aria-hidden />
-            <h3>Suas OS abertas</h3>
-            <span className="sec-count">{mine.length}</span>
+            <h3>Minhas OS</h3>
           </div>
-          {mine.length === 0 ? (
+          <Chips
+            value={mineFilter}
+            onChange={setMineFilter}
+            options={[
+              { id: 'abertas', label: `Em aberto (${mine.length})` },
+              { id: 'aguardando', label: `Aguardando peça (${waiting.length})` },
+              { id: 'finalizadas', label: `Finalizadas (${myClosed.length})` },
+            ]}
+          />
+          {list.length === 0 ? (
             <EmptyState
               icon={ClipboardList}
-              title="Nenhuma OS aberta no seu nome"
-              text="Toque em Abrir OS quando um equipamento chegar com problema."
+              title={mineFilter === 'finalizadas' ? 'Nenhuma OS finalizada por você ainda' : 'Nenhuma OS aqui'}
+              text={
+                mineFilter === 'abertas' ? 'Toque em Abrir OS quando um equipamento chegar com problema.' : undefined
+              }
             />
           ) : (
             <div className="olist">
-              {mine.map((o) => (
+              {list.map((o) => (
                 <OrderCard
                   key={o.id}
                   o={o}
                   snap={snap}
+                  now={now}
+                  expandable
                   actions={
-                    <>
-                      <Button size="lg" tone="blue" icon={Package} onClick={() => go({ s: 'pick-scan', osId: o.id })}>
-                        Pegar peça
-                      </Button>
-                      <Button
-                        size="lg"
-                        tone="green"
-                        icon={CircleCheck}
-                        onClick={() => go({ s: 'close-scan', osId: o.id })}
-                      >
-                        Fechar OS
-                      </Button>
-                    </>
+                    o.status === 'closed' ? undefined : (
+                      <>
+                        <Button size="lg" tone="blue" icon={Package} onClick={() => go({ s: 'pick-scan', osId: o.id })}>
+                          Pegar peça
+                        </Button>
+                        <Button
+                          size="lg"
+                          tone="green"
+                          icon={CircleCheck}
+                          onClick={() => go({ s: 'close-scan', osId: o.id })}
+                        >
+                          Fechar OS
+                        </Button>
+                      </>
+                    )
                   }
                 />
               ))}
@@ -731,6 +751,7 @@ export function TechApp({ user, onLogout, embedded }: Props) {
           )}
         </>
       );
+    }
   }
 
   return (
@@ -745,6 +766,215 @@ export function TechApp({ user, onLogout, embedded }: Props) {
         )}
       </main>
     </div>
+  );
+}
+
+/* ---------- dados da abertura: horímetro, localização, descrição e fotos ---------- */
+function OpenDetailsStep({
+  equip,
+  problem,
+  initialDescription,
+  photoSide,
+  busy,
+  onSubmit,
+}: {
+  equip: Equipment;
+  problem: string;
+  initialDescription: string;
+  photoSide: number;
+  busy: boolean;
+  onSubmit: (data: {
+    hourMeter: number | null;
+    location: EquipLocation;
+    description: string;
+    photos: string[];
+  }) => void;
+}) {
+  const kind = KIND[equip.kind];
+  const [hour, setHour] = useState('');
+  const [location, setLocation] = useState<EquipLocation>(equip.location);
+  const [description, setDescription] = useState(initialDescription);
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [err, setErr] = useState('');
+  const parsed = hour.trim() ? parseHours(hour) : null;
+  const lower = parsed !== null && equip.hourMeter !== null && parsed < equip.hourMeter;
+
+  const submit = () => {
+    if (hour.trim() && parsed === null) return setErr('Digite só números no horímetro, como 1234,5.');
+    if (kind.hasHourMeter && parsed === null) return setErr('Informe o horímetro do equipamento.');
+    setErr('');
+    onSubmit({ hourMeter: parsed, location, description: description.trim(), photos });
+  };
+
+  return (
+    <>
+      <h2 className="screen-t">Dados da OS</h2>
+      <p className="screen-s">
+        {equip.id} · {problem}
+      </p>
+      <HourInput
+        value={hour}
+        onChange={setHour}
+        lastKnown={equip.hourMeter}
+        required={kind.hasHourMeter}
+        warning={
+          lower && equip.hourMeter !== null
+            ? `Está menor que o último registrado (${formatHours(equip.hourMeter)}). Confira o número.`
+            : undefined
+        }
+      />
+      <FieldBlock label="Onde está o equipamento?">
+        <LocationToggle value={location} onChange={setLocation} />
+      </FieldBlock>
+      <FieldBlock label="Descrição do problema (opcional)">
+        <textarea
+          className="text-field"
+          rows={3}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Ex.: pedal de freio baixo"
+          aria-label="Descrição do problema"
+        />
+      </FieldBlock>
+      <FieldBlock label="Fotos (opcional)">
+        <PhotoPicker photos={photos} onChange={setPhotos} maxSide={photoSide} />
+      </FieldBlock>
+      {err && (
+        <Notice tone="red" icon={TriangleAlert}>
+          {err}
+        </Notice>
+      )}
+      <Button variant="primary" size="xl" block icon={ClipboardPlus} busy={busy} onClick={submit}>
+        Abrir OS
+      </Button>
+    </>
+  );
+}
+
+/* ---------- fechamento: serviço, horímetro final, peças conferidas e fotos ---------- */
+function CloseStep({
+  order,
+  equip,
+  snap,
+  now,
+  photoSide,
+  busy,
+  onCancel,
+  onSubmit,
+}: {
+  order: WorkOrder;
+  equip: Equipment | undefined;
+  snap: Snapshot;
+  now: number;
+  photoSide: number;
+  busy: boolean;
+  onCancel: () => void;
+  onSubmit: (data: { serviceDone: string; hourMeter: number | null; photos: string[] }) => void;
+}) {
+  const kind = equip ? KIND[equip.kind] : null;
+  const [service, setService] = useState('');
+  const [hour, setHour] = useState('');
+  const [checked, setChecked] = useState(false);
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [err, setErr] = useState('');
+  const used = partsText(order, snap);
+
+  const addChip = (chip: string) => setService((s) => (s.trim() ? `${s.trim()}; ${chip.toLowerCase()}` : chip));
+
+  const submit = () => {
+    if (!service.trim()) return setErr('Descreva o serviço executado. Os botões acima ajudam.');
+    const parsed = hour.trim() ? parseHours(hour) : null;
+    if (hour.trim() && parsed === null) return setErr('Digite só números no horímetro, como 1234,5.');
+    if (kind?.hasHourMeter && parsed === null) return setErr('Informe o horímetro final.');
+    if (parsed !== null && order.hourMeterStart !== null && parsed < order.hourMeterStart)
+      return setErr(`O horímetro final não pode ser menor que o da abertura (${formatHours(order.hourMeterStart)}).`);
+    if (!checked) return setErr('Confira as peças usadas e marque a caixa.');
+    setErr('');
+    onSubmit({ serviceDone: service.trim(), hourMeter: parsed, photos });
+  };
+
+  return (
+    <>
+      <h2 className="screen-t">Fechar a OS {order.id}</h2>
+      <dl className="details">
+        <div>
+          <dt>Equipamento</dt>
+          <dd>
+            {order.equipId}
+            {kind ? `, ${kind.label}` : ''}
+          </dd>
+        </div>
+        <div>
+          <dt>Problema</dt>
+          <dd>{order.problem}</dd>
+        </div>
+        <div>
+          <dt>Aberta</dt>
+          <dd>
+            {dateTime(order.openedAt)} ({ago(order.openedAt, now)}) por {order.tech}
+          </dd>
+        </div>
+        <div>
+          <dt>Horímetro na abertura</dt>
+          <dd>{order.hourMeterStart !== null ? formatHours(order.hourMeterStart) : 'Não registrado'}</dd>
+        </div>
+      </dl>
+      <FieldBlock label="Serviço executado">
+        <div className="chips">
+          {SERVICE_CHIPS.map((c) => (
+            <button key={c} type="button" className="chip" onClick={() => addChip(c)}>
+              {c}
+            </button>
+          ))}
+        </div>
+        <textarea
+          className="text-field"
+          rows={3}
+          value={service}
+          onChange={(e) => setService(e.target.value)}
+          placeholder="Toque nos botões acima ou escreva aqui"
+          aria-label="Serviço executado"
+        />
+      </FieldBlock>
+      <HourInput
+        label="Horímetro final"
+        value={hour}
+        onChange={setHour}
+        lastKnown={order.hourMeterStart}
+        required={!!kind?.hasHourMeter}
+      />
+      <FieldBlock label="Peças usadas">
+        {used ? (
+          <ul className="parts-list">
+            {order.parts.map((x) => (
+              <li key={x.partId}>
+                {x.qty} × {snap.parts.find((p) => p.id === x.partId)?.name ?? x.partId}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="fld-h">Nenhuma peça retirada nesta OS.</p>
+        )}
+        <label className="check">
+          <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+          <span>{used ? 'Conferi as peças usadas' : 'Confirmo que não usei peças do estoque'}</span>
+        </label>
+      </FieldBlock>
+      <FieldBlock label="Fotos do serviço (opcional)">
+        <PhotoPicker photos={photos} onChange={setPhotos} maxSide={photoSide} />
+      </FieldBlock>
+      {err && (
+        <Notice tone="red" icon={TriangleAlert}>
+          {err}
+        </Notice>
+      )}
+      <Button size="xl" tone="green" block icon={CircleCheck} busy={busy} onClick={submit}>
+        Fechar OS e liberar equipamento
+      </Button>
+      <Button variant="outline" size="lg" block onClick={onCancel}>
+        Ainda não
+      </Button>
+    </>
   );
 }
 
@@ -812,7 +1042,7 @@ function QtyStep({
 }
 
 /* ---------- problema falado ---------- */
-function VoiceStep({ equipId, busy, onSubmit }: { equipId: string; busy: boolean; onSubmit: (text: string) => void }) {
+function VoiceStep({ equipId, onSubmit }: { equipId: string; onSubmit: (text: string) => void }) {
   const [phase, setPhase] = useState<'idle' | 'listening' | 'done'>('idle');
   const [text, setText] = useState('');
   useEffect(() => {
@@ -847,15 +1077,8 @@ function VoiceStep({ equipId, busy, onSubmit }: { equipId: string; busy: boolean
             onChange={(e) => setText(e.target.value)}
             aria-label="Descrição do problema"
           />
-          <Button
-            variant="primary"
-            size="xl"
-            block
-            busy={busy}
-            disabled={!text.trim()}
-            onClick={() => onSubmit(text.trim())}
-          >
-            Abrir OS
+          <Button variant="primary" size="xl" block disabled={!text.trim()} onClick={() => onSubmit(text.trim())}>
+            Continuar
           </Button>
         </>
       )}

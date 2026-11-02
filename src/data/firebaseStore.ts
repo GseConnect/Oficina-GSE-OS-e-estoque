@@ -10,24 +10,37 @@ import {
   orderBy,
   query,
   runTransaction,
+  where,
   writeBatch,
   type DocumentData,
   type FirestoreError,
+  type Transaction,
   type WriteBatch,
 } from 'firebase/firestore';
 
-import type { DataStore, Equipment, LogEntry, Part, Technician, WorkOrder } from '../types';
+import type { DataStore, Equipment, LogEntry, Part, Photo, Technician, WorkOrder } from '../types';
 import { whoOf } from '../lib/format';
 import { makeSeed } from './seed';
-import { AppError, addPart, assertOpen, assertStock, logText } from './rules';
+import {
+  AppError,
+  addPart,
+  assertClose,
+  assertEquipmentInput,
+  assertOpen,
+  assertStock,
+  assertTechnicianInput,
+  logText,
+} from './rules';
 
-type ColName = 'equipamentos' | 'pecas' | 'ordens' | 'movimentacoes' | 'tecnicos' | 'config';
+type ColName = 'equipamentos' | 'pecas' | 'ordens' | 'movimentacoes' | 'tecnicos' | 'fotos' | 'config';
 
 const toEquipment = (id: string, d: DocumentData): Equipment => ({
   id,
   kind: d.kind,
   status: d.status,
   osId: d.osId ?? null,
+  location: d.location ?? 'operacao',
+  hourMeter: d.hourMeter ?? null,
 });
 const toPart = (id: string, d: DocumentData): Part => ({
   id,
@@ -38,26 +51,42 @@ const toPart = (id: string, d: DocumentData): Part => ({
   qty: d.qty,
   min: d.min,
 });
+// Campos novos da versão 0.2 ganham valor padrão, para ler também OS gravadas pela versão anterior.
 const toOrder = (d: DocumentData): WorkOrder => ({
   id: d.id,
   equipId: d.equipId,
   problem: d.problem,
+  description: d.description ?? '',
+  location: d.location ?? 'oficina',
   tech: d.tech,
   techBp: d.techBp,
   status: d.status,
   openedAt: d.openedAt,
+  hourMeterStart: d.hourMeterStart ?? null,
   closedAt: d.closedAt ?? null,
   closedBy: d.closedBy ?? null,
+  closedByBp: d.closedByBp ?? null,
+  hourMeterEnd: d.hourMeterEnd ?? null,
+  serviceDone: d.serviceDone ?? null,
+  photoCount: d.photoCount ?? 0,
   parts: d.parts ?? [],
   waitPartId: d.waitPartId ?? null,
 });
 const toLog = (id: string, d: DocumentData): LogEntry => ({ id, at: d.at, kind: d.kind, text: d.text });
 const toTech = (id: string, d: DocumentData): Technician => ({ bp: id, name: d.name });
+const toPhoto = (id: string, d: DocumentData): Photo => ({
+  id,
+  osId: d.osId,
+  stage: d.stage,
+  data: d.data,
+  at: d.at,
+  by: d.by,
+});
 
 /**
  * Dados no Cloud Firestore, com atualização em tempo real (onSnapshot).
  * Coleções usadas (com o prefixo, por padrão "oficina_"):
- *   equipamentos, pecas, ordens, movimentacoes, tecnicos, config/contador
+ *   equipamentos, pecas, ordens, movimentacoes, tecnicos, fotos, config/contador
  */
 export function createFirebaseStore(options: FirebaseOptions, prefix: string): DataStore {
   const db = getFirestore(initializeApp(options));
@@ -74,6 +103,7 @@ export function createFirebaseStore(options: FirebaseOptions, prefix: string): D
       return new AppError('O Firestore recusou a gravação. Confira as regras do banco.');
     if (code === 'aborted' || code === 'failed-precondition')
       return new AppError('Outra pessoa alterou isso agora. Tente de novo.');
+    if (code === 'invalid-argument') return new AppError('A foto ficou grande demais. Tente de novo com menos fotos.');
     return new AppError('Não foi possível salvar. Tente de novo.');
   };
   const guard = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -83,22 +113,33 @@ export function createFirebaseStore(options: FirebaseOptions, prefix: string): D
       throw friendly(e);
     }
   };
+  const savePhotos = (tx: Transaction, osId: number, stage: Photo['stage'], list: string[], by: string, at: number) =>
+    list.forEach((data) => tx.set(doc(col('fotos')), { osId, stage, data, at, by }));
 
   async function writeSeed(): Promise<void> {
     const seed = makeSeed(Date.now());
     const keepOrders = new Set(seed.orders.map((o) => String(o.id)));
     const keepLogs = new Set(seed.log.map((l) => l.id));
-    const [ordersQs, logQs] = await Promise.all([getDocs(col('ordens')), getDocs(col('movimentacoes'))]);
+    const keepEquip = new Set(seed.equipment.map((e) => e.id));
+    const keepTechs = new Set(seed.technicians.map((t) => t.bp));
+    const [ordersQs, logQs, photoQs, equipQs, techQs] = await Promise.all([
+      getDocs(col('ordens')),
+      getDocs(col('movimentacoes')),
+      getDocs(col('fotos')),
+      getDocs(col('equipamentos')),
+      getDocs(col('tecnicos')),
+    ]);
     const ops: Array<(b: WriteBatch) => void> = [];
-    ordersQs.forEach((d) => {
-      if (!keepOrders.has(d.id)) ops.push((b) => b.delete(d.ref));
-    });
-    logQs.forEach((d) => {
-      if (!keepLogs.has(d.id)) ops.push((b) => b.delete(d.ref));
-    });
-    seed.equipment.forEach((e) =>
-      ops.push((b) => b.set(doc(col('equipamentos'), e.id), { kind: e.kind, status: e.status, osId: e.osId })),
-    );
+    const drop = (docs: typeof ordersQs.docs, keep?: Set<string>) =>
+      docs.forEach((d) => {
+        if (!keep || !keep.has(d.id)) ops.push((batch) => batch.delete(d.ref));
+      });
+    drop(ordersQs.docs, keepOrders);
+    drop(logQs.docs, keepLogs);
+    drop(photoQs.docs);
+    drop(equipQs.docs, keepEquip);
+    drop(techQs.docs, keepTechs);
+    seed.equipment.forEach(({ id, ...rest }) => ops.push((b) => b.set(doc(col('equipamentos'), id), rest)));
     seed.parts.forEach(({ id, ...rest }) => ops.push((b) => b.set(doc(col('pecas'), id), rest)));
     seed.technicians.forEach((t) => ops.push((b) => b.set(doc(col('tecnicos'), t.bp), { name: t.name })));
     seed.orders.forEach((o) => ops.push((b) => b.set(doc(col('ordens'), String(o.id)), o)));
@@ -200,15 +241,15 @@ export function createFirebaseStore(options: FirebaseOptions, prefix: string): D
       };
     },
 
-    openOrder: ({ equipId, problem, user }) =>
+    openOrder: ({ equipId, problem, description, location, hourMeter, photos, user }) =>
       guard(() =>
         runTransaction(db, async (tx) => {
           const eqRef = doc(col('equipamentos'), equipId);
           const cSnap = await tx.get(counterRef());
           const eSnap = await tx.get(eqRef);
           if (!eSnap.exists()) throw new AppError('Equipamento não encontrado.');
-          const osIdNow = eSnap.data().osId as number | null;
-          if (osIdNow) throw new AppError(`O ${equipId} já tem a OS ${osIdNow} aberta.`);
+          const eq = toEquipment(eSnap.id, eSnap.data());
+          if (eq.osId) throw new AppError(`O ${equipId} já tem a OS ${eq.osId} aberta.`);
           const id: number = cSnap.exists() ? Number(cSnap.data().nextOs) : 1041;
           const now = Date.now();
           const who = whoOf(user);
@@ -216,18 +257,26 @@ export function createFirebaseStore(options: FirebaseOptions, prefix: string): D
             id,
             equipId,
             problem,
+            description,
+            location,
             tech: who,
             techBp: user.bp,
             status: 'open',
             openedAt: now,
+            hourMeterStart: hourMeter,
             closedAt: null,
             closedBy: null,
+            closedByBp: null,
+            hourMeterEnd: null,
+            serviceDone: null,
+            photoCount: photos.length,
             parts: [],
             waitPartId: null,
           };
           tx.set(counterRef(), { nextOs: id + 1 }, { merge: true });
           tx.set(doc(col('ordens'), String(id)), order);
-          tx.update(eqRef, { status: 'down', osId: id });
+          tx.update(eqRef, { status: 'down', osId: id, location, hourMeter: hourMeter ?? eq.hourMeter });
+          savePhotos(tx, id, 'abertura', photos, who, now);
           tx.set(doc(col('movimentacoes')), { at: now, kind: 'open', text: logText.open(who, id, equipId, problem) });
           return id;
         }),
@@ -293,19 +342,68 @@ export function createFirebaseStore(options: FirebaseOptions, prefix: string): D
         }),
       ),
 
-    closeOrder: ({ osId, user }) =>
+    closeOrder: (input) =>
       guard(() =>
         runTransaction(db, async (tx) => {
+          const { osId, serviceDone, hourMeter, photos, user } = input;
           const oRef = doc(col('ordens'), String(osId));
           const oSnap = await tx.get(oRef);
           const o = assertOpen(oSnap.exists() ? toOrder(oSnap.data()) : undefined, osId);
+          assertClose(o, input);
+          const eqRef = doc(col('equipamentos'), o.equipId);
+          const eSnap = await tx.get(eqRef);
+          const lastHour = eSnap.exists() ? toEquipment(eSnap.id, eSnap.data()).hourMeter : null;
           const now = Date.now();
           const who = whoOf(user);
-          tx.update(oRef, { status: 'closed', closedAt: now, closedBy: who });
-          tx.update(doc(col('equipamentos'), o.equipId), { status: 'ok', osId: null });
+          tx.update(oRef, {
+            status: 'closed',
+            closedAt: now,
+            closedBy: who,
+            closedByBp: user.bp,
+            hourMeterEnd: hourMeter,
+            serviceDone: serviceDone.trim(),
+            photoCount: o.photoCount + photos.length,
+          });
+          tx.update(eqRef, { status: 'ok', osId: null, location: 'operacao', hourMeter: hourMeter ?? lastHour });
+          savePhotos(tx, osId, 'fechamento', photos, who, now);
           tx.set(doc(col('movimentacoes')), { at: now, kind: 'close', text: logText.close(who, osId, o.equipId) });
         }),
       ),
+
+    addEquipment: (input) =>
+      guard(() =>
+        runTransaction(db, async (tx) => {
+          assertEquipmentInput(input);
+          const ref = doc(col('equipamentos'), input.id);
+          if ((await tx.get(ref)).exists()) throw new AppError(`O ${input.id} já está cadastrado.`);
+          tx.set(ref, {
+            kind: input.kind,
+            status: 'ok',
+            osId: null,
+            location: input.location,
+            hourMeter: input.hourMeter,
+          });
+          tx.set(doc(col('movimentacoes')), { at: Date.now(), kind: 'register', text: logText.equipment(input) });
+        }),
+      ),
+
+    addTechnician: (input) =>
+      guard(() =>
+        runTransaction(db, async (tx) => {
+          assertTechnicianInput(input);
+          const tech = { bp: input.bp, name: input.name.trim() };
+          const ref = doc(col('tecnicos'), tech.bp);
+          if ((await tx.get(ref)).exists()) throw new AppError(`O BP ${tech.bp} já está cadastrado.`);
+          tx.set(ref, { name: tech.name });
+          tx.set(doc(col('movimentacoes')), { at: Date.now(), kind: 'register', text: logText.technician(tech) });
+        }),
+      ),
+
+    getPhotos: (osId) =>
+      guard(async () => {
+        const qs = await getDocs(query(col('fotos'), where('osId', '==', osId)));
+        return qs.docs.map((d) => toPhoto(d.id, d.data())).sort((a, b) => a.at - b.at);
+      }),
 
     reset: () => guard(writeSeed),
   };

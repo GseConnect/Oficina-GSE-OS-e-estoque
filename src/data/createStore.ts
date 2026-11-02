@@ -1,11 +1,16 @@
 import type { DataStore } from '../types';
 
 /**
- * Com a configuração do Firebase no .env.local, usa o Firestore (tempo real entre aparelhos).
- * Sem ela, abre no modo demonstração, com os dados só neste navegador.
+ * Com a configuração do Supabase no .env.local, usa o Supabase (PostgreSQL, tempo real entre aparelhos).
+ * Senão, com a do Firebase, usa o Firestore. Sem nenhuma das duas, abre no modo demonstração,
+ * com os dados só neste navegador.
  */
 export async function createStore(): Promise<DataStore> {
   const env = import.meta.env;
+  if (env.VITE_DEMO_ONLY !== 'true' && env.VITE_SUPABASE_URL && env.VITE_SUPABASE_ANON_KEY) {
+    const { createSupabaseStore } = await import('./supabaseStore');
+    return createSupabaseStore(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY);
+  }
   const options = {
     apiKey: env.VITE_FIREBASE_API_KEY,
     authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,

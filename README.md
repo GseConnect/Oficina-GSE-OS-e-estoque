@@ -14,6 +14,7 @@
   <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white" />
   <img alt="TypeScript 6" src="https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white" />
   <img alt="Vite 8" src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white" />
+  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?logo=supabase&logoColor=white" />
   <img alt="Firebase Firestore" src="https://img.shields.io/badge/Firebase-Firestore-FFCA28?logo=firebase&logoColor=black" />
   <img alt="Status: protótipo" src="https://img.shields.io/badge/status-prot%C3%B3tipo-E3285C" />
 </p>
@@ -22,19 +23,21 @@
 
 <table>
   <tr>
-    <td align="center"><img src="docs/telas/tecnico-inicio.png" alt="Início do técnico" width="260" /><br /><sub>Início do técnico</sub></td>
-    <td align="center"><img src="docs/telas/tecnico-leitura-qr.png" alt="Leitura do QR code" width="260" /><br /><sub>Leitura do QR code</sub></td>
-    <td align="center"><img src="docs/telas/tecnico-os-aberta.png" alt="OS aberta" width="260" /><br /><sub>OS aberta</sub></td>
+    <td align="center"><img src="docs/telas/tecnico-inicio.png" alt="Início do técnico" width="240" /><br /><sub>Início e Minhas OS</sub></td>
+    <td align="center"><img src="docs/telas/tecnico-dados-os.png" alt="Dados da OS" width="240" /><br /><sub>Abertura: horímetro, local e fotos</sub></td>
+    <td align="center"><img src="docs/telas/tecnico-fechamento.png" alt="Fechamento da OS" width="240" /><br /><sub>Fechamento com serviço executado</sub></td>
   </tr>
 </table>
 
-<p align="center"><img src="docs/telas/painel-frota.png" alt="Painel do planejamento" /><br /><sub>Painel do planejamento: frota em tempo real</sub></p>
+<p align="center"><img src="docs/telas/painel-frota.png" alt="Painel do planejamento" /><br /><sub>Painel do planejamento: frota em tempo real, com a localização de cada equipamento</sub></p>
 
 <details>
 <summary>Mais telas</summary>
 
 <p align="center"><img src="docs/telas/entrada.png" alt="Entrada com o BP" width="480" /><br /><sub>Entrada com o BP</sub></p>
-<p align="center"><img src="docs/telas/painel-ordens.png" alt="Ordens de serviço" /><br /><sub>Ordens de serviço com busca e filtros</sub></p>
+<p align="center"><img src="docs/telas/tecnico-leitura-qr.png" alt="Leitura do QR code" width="300" /><br /><sub>Leitura do QR code</sub></p>
+<p align="center"><img src="docs/telas/painel-ordens.png" alt="Ordens de serviço" /><br /><sub>Ordens de serviço com detalhes e fotos</sub></p>
+<p align="center"><img src="docs/telas/painel-cadastros.png" alt="Cadastros" /><br /><sub>Cadastro de equipamentos e técnicos</sub></p>
 <p align="center"><img src="docs/telas/modo-apresentacao.png" alt="Modo apresentação" /><br /><sub>Modo apresentação: celular e painel na mesma tela</sub></p>
 <p align="center"><img src="docs/telas/etiquetas-qr.png" alt="Etiquetas QR" /><br /><sub>Etiquetas QR para imprimir</sub></p>
 
@@ -42,22 +45,35 @@
 
 ## Funcionalidades
 
-- **Entrada só com o BP**, o número do crachá.
-- **Abrir OS** lendo o QR code do equipamento e tocando no problema, ou falando.
-- **Pegar peça** lendo o QR code da prateleira. O estoque baixa na hora e o app avisa quando a peça fica abaixo do mínimo. Se a peça estiver em falta, a OS fica como “aguardando peça”.
-- **Fechar OS** lendo o QR code do equipamento, que volta a ficar disponível.
-- **Painel em tempo real** com disponibilidade da frota, baixados, aguardando peça, estoque crítico, OS, estoque e movimentações, mais alerta sonoro de OS nova.
-- **Modo apresentação** e **etiquetas QR** prontas para imprimir.
-- **Modo demonstração**: sem configurar o Firebase, tudo funciona com os dados guardados no navegador.
+O protótipo cobre a **Fase 1 (MVP: oficina e estoque)** da proposta do GSE Connect.
 
-As telas do técnico foram pensadas para quem tem pouca intimidade com tecnologia: botões grandes, poucos passos e textos curtos. Toda leitura de QR também tem uma lista de “QR de teste”, para quando não houver etiqueta por perto.
+**App do técnico (celular)**
+
+- **Entrada pelo BP**: só entra quem está no cadastro de técnicos.
+- **Abrir OS** lendo o QR code do equipamento. O técnico escolhe o defeito (ou fala) e informa horímetro, localização (oficina ou operação), descrição e fotos. O número da OS, o técnico e a hora saem automáticos.
+- **Pegar peça** lendo o QR code da prateleira, sempre vinculada a uma OS. O estoque baixa na hora, com aviso de estoque mínimo. Se a peça estiver em falta, a OS fica como “aguardando peça”. Dá para desfazer uma retirada errada.
+- **Fechar OS** lendo o QR code do equipamento. O técnico registra o serviço executado (com atalhos), o horímetro final, as fotos e confere as peças usadas. O equipamento volta a ficar disponível na operação.
+- **Minhas OS**: em aberto, aguardando peça e finalizadas, com os detalhes e as fotos de cada uma.
+
+**Painel do planejamento (computador ou TV da oficina)**
+
+- Disponibilidade da frota em tempo real, por categoria, com a localização de cada equipamento.
+- Ordens de serviço com busca, filtros, tempo em atendimento, peças usadas, detalhes e fotos.
+- Estoque com itens cadastrados, com saldo, abaixo do mínimo, zerados e peças mais usadas nos últimos 30 dias.
+- Histórico de movimentações e alerta sonoro de OS nova.
+- **Cadastros** de equipamentos (prefixo, categoria, localização e horímetro) e de técnicos (BP e nome).
+- **Modo apresentação** e **etiquetas QR** prontas para imprimir.
+
+Sem configurar o banco, tudo funciona em **modo demonstração**, com os dados guardados no navegador.
+
+As telas do técnico foram pensadas para quem tem pouca intimidade com tecnologia: botões grandes, poucos passos, atalhos no lugar de digitação e textos curtos. Toda leitura de QR também tem uma lista de “QR de teste”, para quando não houver etiqueta por perto.
 
 ## Tecnologias
 
 | Parte         | Escolha                                                                             |
 | ------------- | ----------------------------------------------------------------------------------- |
 | Interface     | React 19 + TypeScript (modo estrito), Vite 8                                        |
-| Dados         | Firebase 12, Cloud Firestore com atualização em tempo real e transações             |
+| Dados         | Supabase (PostgreSQL, tempo real e funções no banco) ou Firebase 12 (Firestore)     |
 | Leitura de QR | [qr-scanner](https://github.com/nimiq/qr-scanner), com a câmera traseira do celular |
 | Etiquetas     | [qrcode](https://github.com/soldair/node-qrcode)                                    |
 | Ícones        | [Lucide](https://lucide.dev)                                                        |
@@ -72,9 +88,9 @@ npm install
 npm run dev
 ```
 
-Abra o endereço que aparecer (normalmente http://localhost:5173). Sem a configuração do Firebase, o app abre em **modo demonstração**, e duas abas abertas no mesmo computador se atualizam juntas.
+Abra o endereço que aparecer (normalmente http://localhost:5173). Sem a configuração do banco, o app abre em **modo demonstração**, e duas abas abertas no mesmo computador se atualizam juntas.
 
-Para testar a entrada, use o BP **4617387** ou qualquer BP de 7 números.
+Para testar a entrada, use o BP **4617387** (Higor Cavalcante). Outros técnicos são cadastrados no painel, na aba **Cadastros**.
 
 | Endereço          | Para quê                                               |
 | ----------------- | ------------------------------------------------------ |
@@ -85,7 +101,35 @@ Para testar a entrada, use o BP **4617387** ou qualquer BP de 7 números.
 
 A câmera só funciona em **https** ou no **localhost**. No celular pela rede local, use os QR de teste ou publique no Firebase Hosting, que já é https.
 
-## Ligar no Firebase
+## Ligar no Supabase
+
+O app usa o Supabase quando as duas variáveis abaixo estão preenchidas. Se também houver dados do Firebase, o Supabase tem prioridade.
+
+1. **Projeto:** em [supabase.com](https://supabase.com), crie (ou abra) o projeto. O protótipo usa tabelas que começam com `oficina_`, então pode dividir o projeto com outros sistemas sem misturar.
+2. **Tabelas e funções:** no painel do Supabase, abra **SQL Editor > New query**, cole todo o conteúdo de [`supabase/schema.sql`](supabase/schema.sql) e clique em **Run**. Pode rodar de novo sem problema.
+3. **Chaves:** clique em **Connect** (topo da tela) ou vá em **Project Settings > API**. Copie a **Project URL** e a chave **anon / publishable**. Nunca use a `service_role`.
+4. **Arquivo `.env.local`**, na pasta do projeto:
+
+   ```
+   VITE_SUPABASE_URL=https://SEU-PROJETO.supabase.co
+   VITE_SUPABASE_ANON_KEY=sua-chave-anon
+   ```
+
+5. **Teste:** `npm run dev`. Na primeira abertura o app grava os dados de exemplo sozinho. O selo no topo do painel mostra a conexão.
+6. **Tempo real:** o `schema.sql` já liga o tempo real nas tabelas. Se algum aparelho demorar a atualizar, confira em **Database > Publications > supabase_realtime** se as tabelas `oficina_*` estão marcadas. Mesmo sem isso, o app confere o banco a cada 20 segundos.
+7. **Site publicado:** nas variáveis do GitHub (_Settings > Secrets and variables > Actions > Variables_), crie `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`. O workflow de deploy já usa as duas na hora do build.
+
+**Como a segurança funciona hoje:** as tabelas só aceitam leitura direta. Toda gravação passa pelas funções `oficina_*` do banco, que validam as regras (estoque nunca negativo, OS fechada não reabre, horímetro final não menor que o inicial) e travam a linha enquanto gravam, então dois técnicos nunca baixam a mesma peça ao mesmo tempo. Como o protótipo ainda não tem login, quem tiver a chave do app consegue chamar essas funções, inclusive o "reiniciar". Antes de usar com dados reais, ligue o Supabase Auth e restrinja as funções por perfil.
+
+**Tabelas:** `oficina_equipamentos`, `oficina_pecas`, `oficina_tecnicos`, `oficina_ordens`, `oficina_ordem_pecas` (peças usadas em cada OS), `oficina_fotos`, `oficina_movimentacoes` e `oficina_config` (contador da OS).
+
+**Fotos:** ficam na tabela `oficina_fotos`, já reduzidas pelo app (JPEG de até 1024 px, até 3 na abertura e 3 no fechamento). Para produção, o ideal é mover para o Supabase Storage.
+
+**Região:** o projeto do Supabase fica no servidor escolhido na criação. Em `us-east-1` (Virgínia) cada ação leva uns décimos de segundo a mais que em São Paulo. Para o protótipo não atrapalha.
+
+**Plano gratuito:** o projeto pausa depois de cerca de uma semana sem uso. Para o uso diário na oficina, vale o plano pago.
+
+## Ligar no Firebase (alternativa)
 
 1. No console do Firebase, crie um projeto. O recomendado é um projeto separado do GSE Connect, só para o protótipo.
 2. Abra **Firestore Database** e crie o banco (região sugerida: `southamerica-east1`, São Paulo).
@@ -135,25 +179,28 @@ O workflow `CI` roda sempre, em todo push e pull request. Ele confere o lint, a 
 
 Com o prefixo padrão `oficina_`:
 
-| Coleção                 | Documento           | Campos                                                                                                                               |
-| ----------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `oficina_equipamentos`  | `TMX-01`, `NBL-01`… | `kind`, `status` (ok/down/wait), `osId`                                                                                              |
-| `oficina_pecas`         | `P1`, `P2`…         | `name`, `fits`, `pn`, `loc`, `qty`, `min`                                                                                            |
-| `oficina_ordens`        | número da OS        | `id`, `equipId`, `problem`, `tech`, `techBp`, `status` (open/wait/closed), `openedAt`, `closedAt`, `closedBy`, `parts`, `waitPartId` |
-| `oficina_movimentacoes` | automático          | `at`, `kind`, `text`                                                                                                                 |
-| `oficina_tecnicos`      | BP                  | `name`                                                                                                                               |
-| `oficina_config`        | `contador`          | `nextOs`                                                                                                                             |
+| Coleção                 | Documento           | Campos                                                                                                                                                                                                                                 |
+| ----------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `oficina_equipamentos`  | prefixo (`TMX-01`…) | `kind`, `status` (ok/down/wait), `osId`, `location` (oficina/operacao), `hourMeter`                                                                                                                                                    |
+| `oficina_pecas`         | `P1`, `P2`…         | `name`, `fits`, `pn`, `loc`, `qty`, `min`                                                                                                                                                                                              |
+| `oficina_ordens`        | número da OS        | `equipId`, `problem`, `description`, `location`, `tech`, `techBp`, `status` (open/wait/closed), `openedAt`, `hourMeterStart`, `closedAt`, `closedBy`, `closedByBp`, `hourMeterEnd`, `serviceDone`, `parts`, `waitPartId`, `photoCount` |
+| `oficina_fotos`         | automático          | `osId`, `stage` (abertura/fechamento), `data`, `at`, `by`                                                                                                                                                                              |
+| `oficina_movimentacoes` | automático          | `at`, `kind`, `text`                                                                                                                                                                                                                   |
+| `oficina_tecnicos`      | BP                  | `name`                                                                                                                                                                                                                                 |
+| `oficina_config`        | `contador`          | `nextOs`                                                                                                                                                                                                                               |
 
-Abrir OS, retirar peça, desfazer, marcar como aguardando peça e fechar OS usam **transações**. Assim, dois técnicos nunca baixam a mesma peça ao mesmo tempo, e o número da OS nunca se repete. No painel, **Reiniciar demonstração** grava de novo os dados de exemplo, que ficam em `src/data/seed.ts`.
+Abrir OS, retirar peça, desfazer, marcar como aguardando peça, fechar OS e cadastrar usam **transações**. Assim, dois técnicos nunca baixam a mesma peça ao mesmo tempo, o número da OS nunca se repete e o mesmo prefixo ou BP não é cadastrado duas vezes. No painel, **Reiniciar demonstração** grava de novo os dados de exemplo, que ficam em `src/data/seed.ts`.
 
-**QR codes:** o de equipamento é `GSE:EQ:TMX-04` (também aceita só `TMX-04`), e o de prateleira é `GSE:PECA:PN-10021` (também aceita só o P/N).
+**Fotos:** o app reduz cada foto para um JPEG leve (até 1024 px) e guarda na coleção `oficina_fotos`, até 3 fotos na abertura e 3 no fechamento. Assim o protótipo continua no plano gratuito do Firebase. Para produção, o ideal é mover as fotos para o Cloud Storage, que hoje exige o plano pago (Blaze).
+
+**QR codes:** o de equipamento é `GSE:EQ:TMX-04` (também aceita só `TMX-04`), e o de prateleira é `GSE:PECA:PN-10021` (também aceita só o P/N). Equipamentos cadastrados no painel ganham etiqueta automaticamente.
 
 ## Estrutura
 
 ```
 src/
   main.tsx, App.tsx      entrada e rotas
-  data/                  createStore (Firebase ou demonstração), firebaseStore, localStore, seed, regras de negócio
+  data/                  createStore, supabaseStore, firebaseStore, localStore, seed, regras de negócio
   tech/                  entrada com o BP e telas do técnico
   panel/                 painel do planejamento
   present/               modo apresentação
@@ -161,6 +208,8 @@ src/
   components/            cabeçalho, câmera e leitor de QR, cartão de OS, botões e selos
   lib/                   datas e textos, leitura do QR, alerta sonoro, rotas
   styles.css             visual no mesmo modelo do GSE Connect
+supabase/
+  schema.sql             tabelas, permissões, funções e tempo real do banco (rode no SQL Editor)
 ```
 
 ## Scripts
@@ -178,10 +227,15 @@ src/
 
 Antes de usar com dados reais:
 
-- [ ] Regras do Firestore com login (Firebase Authentication). As do protótipo ficam abertas só até 30/11/2026.
-- [ ] Validar o BP no cadastro de técnicos, com senha se for o caso.
+- [ ] Login de verdade (Supabase Auth ou o login corporativo aprovado) e permissões por perfil no banco. Hoje a chave do app basta para gravar.
+- [ ] Perfis de acesso: técnico, almoxarifado, planejamento e operação de rampa.
+- [ ] Fotos no Supabase Storage (ou Cloud Storage) em vez de dentro do banco.
 - [ ] Reconhecimento de voz de verdade no “Outro: falar o problema”.
-- [ ] Trocar os dados de exemplo pelo cadastro real de peças (P/N, prateleira e estoque mínimo) e da frota.
+
+Já previsto na proposta para as próximas fases:
+
+- [ ] Fase 2: cadastro completo do estoque, entrada e ajuste de materiais, histórico completo dos equipamentos, indicadores (MTTR, MTBF, consumo) e relatórios.
+- [ ] Fase 3: checklists da rampa, ocorrências, controle do ATIV e integração com o Sofit.
 
 ## Contribuindo
 

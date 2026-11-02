@@ -16,22 +16,34 @@ import {
   Search,
   Smartphone,
   Undo2,
+  UserPlus,
   Volume2,
   VolumeX,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
 import { useStore } from '../data/storeContext';
-import { ago, clock, firstName, plural } from '../lib/format';
+import { ago, clock, firstName, formatHours, parseHours, plural, DAY } from '../lib/format';
+import { AppError, normalizeEquipId } from '../data/rules';
 import { audioReady, chime, unlockAudio } from '../lib/sound';
 import { cx } from '../lib/cx';
-import type { Equipment, LogEntry, Part, Snapshot, WorkOrder } from '../types';
+import type { EquipKind, EquipLocation, Equipment, LogEntry, Part, Snapshot, WorkOrder } from '../types';
 import { AppHeader } from '../components/AppHeader';
 import { OrderCard } from '../components/OrderCard';
-import { EQUIP_STATUS, KIND, ORDER_STATUS, PART_LEVEL, partLevel, type Tone } from '../components/status';
-import { Button, Chips, EmptyState, Loading, Pill, StatCard } from '../components/ui';
+import { LocationToggle } from '../components/FormBits';
+import {
+  EQUIP_STATUS,
+  KIND,
+  KIND_ORDER,
+  LOCATION,
+  ORDER_STATUS,
+  PART_LEVEL,
+  partLevel,
+  type Tone,
+} from '../components/status';
+import { Button, Chips, EmptyState, Loading, Notice, Pill, StatCard } from '../components/ui';
 
-type Tab = 'frota' | 'os' | 'estoque' | 'mov';
+type Tab = 'frota' | 'os' | 'estoque' | 'mov' | 'cad';
 
 // Chave e "assinatura" de cada lista, para saber o que mudou
 interface KpiItem {
@@ -39,9 +51,9 @@ interface KpiItem {
   v: number;
 }
 const eqKey = (e: Equipment) => e.id;
-const eqSig = (e: Equipment) => `${e.status}|${e.osId}`;
+const eqSig = (e: Equipment) => `${e.status}|${e.osId}|${e.location}`;
 const osKey = (o: WorkOrder) => String(o.id);
-const osSig = (o: WorkOrder) => `${o.status}|${JSON.stringify(o.parts)}`;
+const osSig = (o: WorkOrder) => `${o.status}|${o.photoCount}|${JSON.stringify(o.parts)}`;
 const partKey = (p: Part) => p.id;
 const partSig = (p: Part) => String(p.qty);
 const kpiKey = (x: KpiItem) => x.k;
@@ -183,6 +195,7 @@ const TABS: Array<{ id: Tab; label: string; icon: LucideIcon }> = [
   { id: 'os', label: 'Ordens de serviço', icon: ClipboardList },
   { id: 'estoque', label: 'Estoque', icon: Boxes },
   { id: 'mov', label: 'Movimentações', icon: History },
+  { id: 'cad', label: 'Cadastros', icon: UserPlus },
 ];
 
 export function Panel({ embedded }: { embedded?: boolean }) {
@@ -318,13 +331,14 @@ export function Panel({ embedded }: { embedded?: boolean }) {
 
       {tab === 'frota' && <FleetTab snap={snap} changed={eqChanged.keys} at={eqChanged.at} />}
       {tab === 'os' && <OrdersTab snap={snap} changed={osChanged.keys} />}
-      {tab === 'estoque' && <StockTab parts={snap.parts} changed={partChanged.keys} />}
+      {tab === 'estoque' && <StockTab snap={snap} changed={partChanged.keys} />}
       {tab === 'mov' && <MovesTab log={snap.log} />}
+      {tab === 'cad' && <CadTab snap={snap} />}
 
       <p className="footnote-box">
-        {store.mode === 'firebase'
-          ? 'Dados no Firebase: o que o técnico faz no celular aparece aqui na hora, em qualquer aparelho.'
-          : 'Modo demonstração: os dados ficam só neste navegador. Com o Firebase configurado, todos os aparelhos ficam sincronizados.'}{' '}
+        {store.mode === 'demo'
+          ? 'Modo demonstração: os dados ficam só neste navegador. Com o Supabase configurado, todos os aparelhos ficam sincronizados.'
+          : `Dados no ${store.mode === 'supabase' ? 'Supabase' : 'Firebase'}: o que o técnico faz no celular aparece aqui na hora, em qualquer aparelho.`}{' '}
         Protótipo com dados de exemplo.
       </p>
     </div>
@@ -333,11 +347,16 @@ export function Panel({ embedded }: { embedded?: boolean }) {
 
 /* ---------- Frota ---------- */
 function FleetTab({ snap, changed, at }: { snap: Snapshot; changed: Set<string>; at: number }) {
-  const groups: Array<Equipment['kind']> = ['tmx', 'nbl'];
+  const atShop = snap.equipment.filter((e) => e.location === 'oficina').length;
+  const atRamp = snap.equipment.length - atShop;
   return (
     <div className="tab-body">
-      {groups.map((kind) => {
+      <p className="showing">
+        {atShop} na oficina e {atRamp} na operação
+      </p>
+      {KIND_ORDER.map((kind) => {
         const list = snap.equipment.filter((e) => e.kind === kind);
+        if (!list.length) return null;
         const ok = list.filter((e) => e.status === 'ok').length;
         const K = KIND[kind];
         return (
@@ -352,6 +371,7 @@ function FleetTab({ snap, changed, at }: { snap: Snapshot; changed: Set<string>;
             <div className="fleet">
               {list.map((e) => {
                 const st = EQUIP_STATUS[e.status];
+                const loc = LOCATION[e.location];
                 const o = e.osId ? snap.orders.find((x) => x.id === e.osId) : undefined;
                 const hit = changed.has(e.id);
                 return (
@@ -360,6 +380,10 @@ function FleetTab({ snap, changed, at }: { snap: Snapshot; changed: Set<string>;
                     <Pill tone={st.tone} icon={st.icon}>
                       {st.label}
                     </Pill>
+                    <p className="etile-loc">
+                      <loc.icon size={14} aria-hidden />
+                      {loc.label}
+                    </p>
                     {o && (
                       <p>
                         OS {o.id} · {firstName(o.tech)}
@@ -381,13 +405,15 @@ function FleetTab({ snap, changed, at }: { snap: Snapshot; changed: Set<string>;
 type OsFilter = 'todas' | 'open' | 'wait' | 'closed';
 
 function OrdersTab({ snap, changed }: { snap: Snapshot; changed: Set<string> }) {
+  const { now } = useStore();
   const [filter, setFilter] = useState<OsFilter>('todas');
   const [q, setQ] = useState('');
   const count = (f: OsFilter) =>
     f === 'todas' ? snap.orders.length : snap.orders.filter((o) => o.status === f).length;
   const term = q.trim().toLowerCase();
   const matches = (o: WorkOrder) =>
-    !term || [String(o.id), o.equipId, o.problem, o.tech, o.techBp].some((v) => v.toLowerCase().includes(term));
+    !term ||
+    [String(o.id), o.equipId, o.problem, o.description, o.tech, o.techBp].some((v) => v.toLowerCase().includes(term));
   const rank = (o: WorkOrder) => (o.status === 'closed' ? 1 : 0);
   const list = snap.orders
     .filter((o) => (filter === 'todas' || o.status === filter) && matches(o))
@@ -425,6 +451,8 @@ function OrdersTab({ snap, changed }: { snap: Snapshot; changed: Set<string> }) 
               key={changed.has(String(o.id)) ? `${o.id}@flash` : o.id}
               o={o}
               snap={snap}
+              now={now}
+              expandable
               flash={changed.has(String(o.id))}
             />
           ))}
@@ -437,7 +465,9 @@ function OrdersTab({ snap, changed }: { snap: Snapshot; changed: Set<string> }) 
 /* ---------- Estoque ---------- */
 type StockFilter = 'todas' | 'low' | 'out';
 
-function StockTab({ parts, changed }: { parts: Part[]; changed: Set<string> }) {
+function StockTab({ snap, changed }: { snap: Snapshot; changed: Set<string> }) {
+  const { now } = useStore();
+  const parts = snap.parts;
   const [filter, setFilter] = useState<StockFilter>('todas');
   const [q, setQ] = useState('');
   const term = q.trim().toLowerCase();
@@ -448,8 +478,34 @@ function StockTab({ parts, changed }: { parts: Part[]; changed: Set<string> }) {
     return okFilter && okTerm;
   });
   const n = (f: StockFilter) => (f === 'todas' ? parts.length : parts.filter((p) => partLevel(p) === f).length);
+
+  // Peças mais usadas nos últimos 30 dias, somando as retiradas de todas as OS
+  const used = new Map<string, number>();
+  snap.orders
+    .filter((o) => o.openedAt >= now - 30 * DAY)
+    .forEach((o) => o.parts.forEach((x) => used.set(x.partId, (used.get(x.partId) ?? 0) + x.qty)));
+  const top = [...used.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+
   return (
     <div className="tab-body">
+      <div className="mini-stats">
+        <div className="mini tone-blue">
+          <strong>{parts.length}</strong>
+          <span>Itens cadastrados</span>
+        </div>
+        <div className="mini tone-green">
+          <strong>{parts.filter((p) => p.qty > 0).length}</strong>
+          <span>Com saldo</span>
+        </div>
+        <div className="mini tone-amber">
+          <strong>{n('low')}</strong>
+          <span>Abaixo do mínimo</span>
+        </div>
+        <div className="mini tone-red">
+          <strong>{n('out')}</strong>
+          <span>Zerados</span>
+        </div>
+      </div>
       <label className="search">
         <Search size={18} aria-hidden />
         <input
@@ -504,6 +560,34 @@ function StockTab({ parts, changed }: { parts: Part[]; changed: Set<string> }) {
           })}
         </div>
       )}
+      <div className="sec-h">
+        <ChartColumn size={20} aria-hidden />
+        <h3>Peças mais usadas</h3>
+        <span className="sec-muted">últimos 30 dias</span>
+      </div>
+      {top.length === 0 ? (
+        <EmptyState icon={Package} title="Nenhuma retirada nos últimos 30 dias" />
+      ) : (
+        <div className="list">
+          {top.map(([partId, qty], i) => {
+            const part = parts.find((p) => p.id === partId);
+            return (
+              <div key={partId} className="list-row">
+                <span className="row-ic tone-blue">{i + 1}º</span>
+                <span className="row-main">
+                  <strong>{part?.name ?? partId}</strong>
+                  <span>
+                    {part?.pn} · prateleira {part?.loc}
+                  </span>
+                </span>
+                <span className="top-qty">
+                  {qty} {plural(qty, 'un.', 'un.')}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -515,6 +599,7 @@ const LOG_ICON: Record<LogEntry['kind'], { icon: LucideIcon; tone: Tone }> = {
   undo: { icon: Undo2, tone: 'neutral' },
   wait: { icon: Clock, tone: 'amber' },
   close: { icon: CircleCheck, tone: 'green' },
+  register: { icon: UserPlus, tone: 'neutral' },
 };
 
 function MovesTab({ log }: { log: LogEntry[] }) {
@@ -539,6 +624,222 @@ function MovesTab({ log }: { log: LogEntry[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ---------- Cadastros ---------- */
+type Msg = { tone: 'green' | 'red'; text: string } | null;
+const errText = (e: unknown) => (e instanceof AppError ? e.message : 'Não foi possível salvar. Tente de novo.');
+
+function CadTab({ snap }: { snap: Snapshot }) {
+  const { store } = useStore();
+  const [eqId, setEqId] = useState('');
+  const [kind, setKind] = useState<EquipKind>('tmx');
+  const [loc, setLoc] = useState<EquipLocation>('operacao');
+  const [hour, setHour] = useState('');
+  const [eqMsg, setEqMsg] = useState<Msg>(null);
+  const [eqBusy, setEqBusy] = useState(false);
+  const [bp, setBp] = useState('');
+  const [name, setName] = useState('');
+  const [techMsg, setTechMsg] = useState<Msg>(null);
+  const [techBusy, setTechBusy] = useState(false);
+
+  const saveEquipment = async () => {
+    const id = normalizeEquipId(eqId);
+    const h = hour.trim() ? parseHours(hour) : null;
+    if (hour.trim() && h === null) {
+      setEqMsg({ tone: 'red', text: 'Digite só números no horímetro, como 1234,5.' });
+      return;
+    }
+    setEqBusy(true);
+    setEqMsg(null);
+    try {
+      await store.addEquipment({ id, kind, location: loc, hourMeter: h });
+      setEqMsg({ tone: 'green', text: `${id} cadastrado. A etiqueta QR já está na página de etiquetas.` });
+      setEqId('');
+      setHour('');
+    } catch (e) {
+      setEqMsg({ tone: 'red', text: errText(e) });
+    } finally {
+      setEqBusy(false);
+    }
+  };
+
+  const saveTechnician = async () => {
+    setTechBusy(true);
+    setTechMsg(null);
+    try {
+      await store.addTechnician({ bp, name });
+      setTechMsg({ tone: 'green', text: `${name.trim()} cadastrado. Já pode entrar no app com o BP ${bp}.` });
+      setBp('');
+      setName('');
+    } catch (e) {
+      setTechMsg({ tone: 'red', text: errText(e) });
+    } finally {
+      setTechBusy(false);
+    }
+  };
+
+  return (
+    <div className="cad">
+      <section className="cad-card" aria-label="Cadastro de equipamentos">
+        <div className="sec-h">
+          <LayoutGrid size={20} aria-hidden />
+          <h3>Equipamentos</h3>
+          <span className="sec-muted">{snap.equipment.length} cadastrados</span>
+        </div>
+        <div className="cad-form">
+          <label className="fld">
+            <span className="fld-l">Prefixo</span>
+            <input
+              className="input input-sm"
+              value={eqId}
+              onChange={(e) => setEqId(e.target.value.toUpperCase())}
+              placeholder="Ex.: TMX-09"
+              autoComplete="off"
+            />
+          </label>
+          <label className="fld">
+            <span className="fld-l">Categoria</span>
+            <select className="input input-sm" value={kind} onChange={(e) => setKind(e.target.value as EquipKind)}>
+              {KIND_ORDER.map((k) => (
+                <option key={k} value={k}>
+                  {KIND[k].label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="fld full">
+            <span className="fld-l">Onde está</span>
+            <LocationToggle value={loc} onChange={setLoc} compact />
+          </div>
+          <label className="fld">
+            <span className="fld-l">Horímetro atual (se tiver)</span>
+            <input
+              className="input input-sm"
+              value={hour}
+              onChange={(e) => setHour(e.target.value.replace(/[^\d.,]/g, ''))}
+              inputMode="decimal"
+              placeholder="Ex.: 1234,5"
+              autoComplete="off"
+            />
+          </label>
+          <div className="fld cad-submit">
+            <Button
+              variant="primary"
+              size="lg"
+              block
+              icon={UserPlus}
+              busy={eqBusy}
+              disabled={!eqId.trim()}
+              onClick={saveEquipment}
+            >
+              Cadastrar equipamento
+            </Button>
+          </div>
+        </div>
+        {eqMsg && (
+          <Notice tone={eqMsg.tone} icon={eqMsg.tone === 'green' ? CircleCheck : ChartColumn}>
+            {eqMsg.text}
+          </Notice>
+        )}
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Prefixo</th>
+                <th>Categoria</th>
+                <th>Onde está</th>
+                <th>Situação</th>
+                <th>Horímetro</th>
+              </tr>
+            </thead>
+            <tbody>
+              {snap.equipment.map((e) => (
+                <tr key={e.id}>
+                  <td className="strong">{e.id}</td>
+                  <td>{KIND[e.kind].label}</td>
+                  <td>{LOCATION[e.location].label}</td>
+                  <td>{EQUIP_STATUS[e.status].label}</td>
+                  <td>{e.hourMeter !== null ? formatHours(e.hourMeter) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="cad-card" aria-label="Cadastro de técnicos">
+        <div className="sec-h">
+          <UserPlus size={20} aria-hidden />
+          <h3>Técnicos</h3>
+          <span className="sec-muted">{snap.technicians.length} cadastrados</span>
+        </div>
+        <div className="cad-form">
+          <label className="fld">
+            <span className="fld-l">BP</span>
+            <input
+              className="input input-sm"
+              value={bp}
+              onChange={(e) => setBp(e.target.value.replace(/\D/g, '').slice(0, 7))}
+              inputMode="numeric"
+              placeholder="7 números"
+              autoComplete="off"
+            />
+          </label>
+          <label className="fld">
+            <span className="fld-l">Nome completo</span>
+            <input
+              className="input input-sm"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ex.: Maria Souza"
+              autoComplete="off"
+            />
+          </label>
+          <div className="fld full">
+            <Button
+              variant="primary"
+              size="lg"
+              block
+              icon={UserPlus}
+              busy={techBusy}
+              disabled={!bp || !name.trim()}
+              onClick={saveTechnician}
+            >
+              Cadastrar técnico
+            </Button>
+          </div>
+        </div>
+        {techMsg && (
+          <Notice tone={techMsg.tone} icon={techMsg.tone === 'green' ? CircleCheck : ChartColumn}>
+            {techMsg.text}
+          </Notice>
+        )}
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>BP</th>
+                <th>Nome</th>
+                <th>OS em aberto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...snap.technicians]
+                .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+                .map((t) => (
+                  <tr key={t.bp}>
+                    <td className="strong">{t.bp}</td>
+                    <td>{t.name}</td>
+                    <td>{snap.orders.filter((o) => o.techBp === t.bp && o.status !== 'closed').length}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }

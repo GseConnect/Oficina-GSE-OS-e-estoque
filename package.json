@@ -1,7 +1,7 @@
 {
   "name": "oficina-gse-os",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Protótipo do app de ordens de serviço e estoque da oficina GSE (React + TypeScript + Firebase)",
   "license": "UNLICENSED",
   "type": "module",
@@ -20,6 +20,7 @@
     "deploy": "npm run build && firebase deploy --only hosting"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
     "firebase": "12.19.0",
     "lucide-react": "1.55.0",
     "qr-scanner": "1.4.2",

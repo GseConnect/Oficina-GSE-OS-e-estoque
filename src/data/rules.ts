@@ -1,6 +1,8 @@
-import type { LogEntry, OrderPart, Part, WorkOrder } from '../types';
+import type { CloseInput, LogEntry, NewEquipmentInput, NewTechnicianInput, OrderPart, Part, WorkOrder } from '../types';
+import { formatHours } from '../lib/format';
+import { KIND_INFO } from '../lib/kinds';
 
-/** Erro com mensagem pronta para mostrar ao técnico. */
+/** Erro com mensagem pronta para mostrar na tela. */
 export class AppError extends Error {}
 
 export const logText = {
@@ -11,6 +13,8 @@ export const logText = {
     `${who} desfez a retirada de ${qty} × ${part} da OS ${os}`,
   wait: (os: number, equip: string, part: string) => `A OS ${os} do ${equip} está aguardando ${part}`,
   close: (who: string, os: number, equip: string) => `${who} fechou a OS ${os} e liberou o ${equip}`,
+  equipment: (e: NewEquipmentInput) => `Equipamento ${e.id} cadastrado (${KIND_INFO[e.kind].label})`,
+  technician: (t: NewTechnicianInput) => `Técnico ${t.name} (BP ${t.bp}) cadastrado`,
 };
 
 export function addPart(list: OrderPart[], partId: string, qty: number): OrderPart[] {
@@ -32,6 +36,27 @@ export function assertStock(p: Part | undefined, qty: number): Part {
   if (p.qty < qty)
     throw new AppError(p.qty === 0 ? `${p.name} está em falta.` : `Só há ${p.qty} de ${p.name} no estoque.`);
   return p;
+}
+
+/** Fechamento: serviço descrito e horímetro final não menor que o da abertura. */
+export function assertClose(o: WorkOrder, input: CloseInput): void {
+  if (!input.serviceDone.trim()) throw new AppError('Descreva o serviço executado.');
+  if (input.hourMeter !== null && o.hourMeterStart !== null && input.hourMeter < o.hourMeterStart) {
+    throw new AppError(`O horímetro final não pode ser menor que o da abertura (${formatHours(o.hourMeterStart)}).`);
+  }
+}
+
+export const normalizeEquipId = (raw: string) => raw.trim().toUpperCase().replace(/\s+/g, '-');
+
+export function assertEquipmentInput(e: NewEquipmentInput): void {
+  if (e.id.length < 3 || e.id.length > 12 || !/^[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(e.id)) {
+    throw new AppError('Use de 3 a 12 letras, números e hífen no prefixo, como TMX-09.');
+  }
+}
+
+export function assertTechnicianInput(t: NewTechnicianInput): void {
+  if (!/^\d{7}$/.test(t.bp)) throw new AppError('O BP tem 7 números.');
+  if (t.name.trim().length < 3) throw new AppError('Escreva o nome completo do técnico.');
 }
 
 export const newLog = (kind: LogEntry['kind'], text: string, at: number): LogEntry => ({
